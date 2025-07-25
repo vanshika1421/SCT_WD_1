@@ -1194,13 +1194,24 @@ class AuthSystem {
         // Form handlers
         document.getElementById('loginForm').addEventListener('submit', (e) => {
             e.preventDefault();
+            console.log('Login form submitted');
             this.handleLogin();
         });
         
         document.getElementById('registerForm').addEventListener('submit', (e) => {
             e.preventDefault();
+            console.log('Register form submitted');
             this.handleRegister();
         });
+        
+        // Add additional button click handler as backup
+        const createAccountBtn = document.querySelector('#registerForm button[type="submit"]');
+        if (createAccountBtn) {
+            createAccountBtn.addEventListener('click', (e) => {
+                console.log('Create account button clicked');
+                // The form submit event should handle this, but this is a backup
+            });
+        }
         
         this.updateUI();
     }
@@ -1258,41 +1269,80 @@ class AuthSystem {
     }
     
     handleRegister() {
-        const name = document.getElementById('registerName').value;
-        const email = document.getElementById('registerEmail').value;
+        console.log('Registration form submitted');
+        
+        // Get values from the correct field IDs
+        const firstName = document.getElementById('firstName').value.trim();
+        const lastName = document.getElementById('lastName').value.trim();
+        const email = document.getElementById('registerEmail').value.trim();
+        const phone = document.getElementById('registerPhone').value.trim();
         const password = document.getElementById('registerPassword').value;
         const confirmPassword = document.getElementById('confirmPassword').value;
+        const agreeTerms = document.getElementById('agreeTerms').checked;
+        
+        // Validation
+        if (!firstName || !lastName || !email || !phone || !password || !confirmPassword) {
+            alert('Please fill in all fields');
+            return;
+        }
+        
+        if (!agreeTerms) {
+            alert('Please agree to the Terms & Conditions to create an account');
+            return;
+        }
         
         if (password !== confirmPassword) {
             alert('Passwords do not match');
             return;
         }
         
-        const users = JSON.parse(localStorage.getItem('stylehub-users')) || [];
-        
-        if (users.find(u => u.email === email)) {
-            alert('Email already exists');
+        if (password.length < 6) {
+            alert('Password must be at least 6 characters long');
             return;
         }
         
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            alert('Please enter a valid email address');
+            return;
+        }
+        
+        // Check if email already exists
+        const users = JSON.parse(localStorage.getItem('stylehub-users')) || [];
+        
+        if (users.find(u => u.email === email)) {
+            alert('Email already exists. Please use a different email or try logging in.');
+            return;
+        }
+        
+        // Create new user
         const newUser = {
             id: Date.now().toString(),
-            name,
-            email,
-            password,
+            name: `${firstName} ${lastName}`,
+            firstName: firstName,
+            lastName: lastName,
+            email: email,
+            phone: phone,
+            password: password,
             memberSince: new Date().toLocaleDateString(),
             totalOrders: 0
         };
         
+        // Save user
         users.push(newUser);
         localStorage.setItem('stylehub-users', JSON.stringify(users));
         
+        // Set as current user
         this.currentUser = newUser;
         localStorage.setItem('stylehub-user', JSON.stringify(newUser));
         
+        // Close modal and update UI
         this.closeAuthModal();
         this.updateUI();
-        alert('Registration successful!');
+        
+        alert(`Registration successful! Welcome ${firstName}!`);
+        console.log('User registered successfully:', newUser);
     }
     
     logout() {
@@ -1551,9 +1601,77 @@ class CheckoutSystem {
         this.checkoutData.items = cartItems;
         this.currentStep = 1;
         this.updateProgressIndicator();
+        
+        // Check if user is logged in
+        const currentUser = window.authSystem ? window.authSystem.currentUser : null;
+        this.setupAccountStep(currentUser);
+        
         this.showStep(1);
         this.checkoutModal.classList.add('show');
         document.body.style.overflow = 'hidden';
+    }
+    
+    setupAccountStep(currentUser) {
+        const guestLoginOptions = document.querySelector('.guest-login-options');
+        const loggedInUserInfo = document.getElementById('loggedInUserInfo');
+        
+        if (currentUser) {
+            // User is logged in - show their info and option to continue or switch to guest
+            guestLoginOptions.style.display = 'none';
+            
+            // Create or update logged-in user section
+            if (!loggedInUserInfo) {
+                const userInfoHTML = `
+                    <div id="loggedInUserInfo" class="logged-in-user">
+                        <div class="user-welcome">
+                            <div class="user-avatar">
+                                <i class="fas fa-user-check"></i>
+                            </div>
+                            <div class="user-details">
+                                <h4>Welcome back, ${currentUser.firstName || currentUser.name}!</h4>
+                                <p>Continue with your account for faster checkout</p>
+                                <div class="user-info-display">
+                                    <p><i class="fas fa-envelope"></i> ${currentUser.email}</p>
+                                    ${currentUser.phone ? `<p><i class="fas fa-phone"></i> ${currentUser.phone}</p>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="checkout-options">
+                            <button class="option-btn primary" onclick="continueWithAccount()">
+                                <i class="fas fa-arrow-right"></i> Continue with Account
+                            </button>
+                            <button class="option-btn" onclick="switchToGuest()">
+                                <i class="fas fa-user-circle"></i> Continue as Guest Instead
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.querySelector('#checkoutStep1').insertAdjacentHTML('afterbegin', userInfoHTML);
+            } else {
+                // Update existing logged-in user info
+                loggedInUserInfo.style.display = 'block';
+                loggedInUserInfo.querySelector('h4').textContent = `Welcome back, ${currentUser.firstName || currentUser.name}!`;
+                loggedInUserInfo.querySelector('.user-info-display').innerHTML = `
+                    <p><i class="fas fa-envelope"></i> ${currentUser.email}</p>
+                    ${currentUser.phone ? `<p><i class="fas fa-phone"></i> ${currentUser.phone}</p>` : ''}
+                `;
+            }
+            
+            // Pre-populate user data
+            this.checkoutData.user = {
+                firstName: currentUser.firstName || currentUser.name.split(' ')[0] || currentUser.name,
+                lastName: currentUser.lastName || currentUser.name.split(' ').slice(1).join(' ') || '',
+                email: currentUser.email,
+                phone: currentUser.phone || ''
+            };
+            
+        } else {
+            // User not logged in - show guest/login options
+            guestLoginOptions.style.display = 'flex';
+            if (loggedInUserInfo) {
+                loggedInUserInfo.style.display = 'none';
+            }
+        }
     }
     
     closeCheckout() {
@@ -1580,10 +1698,17 @@ class CheckoutSystem {
         paymentMethods.forEach(method => {
             method.addEventListener('change', (e) => {
                 const cardForm = document.getElementById('cardForm');
+                const codInfo = document.getElementById('codInfo');
+                
                 if (e.target.value === 'credit') {
                     cardForm.style.display = 'block';
+                    if (codInfo) codInfo.style.display = 'none';
+                } else if (e.target.value === 'cod') {
+                    cardForm.style.display = 'none';
+                    if (codInfo) codInfo.style.display = 'block';
                 } else {
                     cardForm.style.display = 'none';
+                    if (codInfo) codInfo.style.display = 'none';
                 }
             });
         });
@@ -1732,10 +1857,30 @@ class CheckoutSystem {
             const cvv = document.getElementById('cvv').value;
             const cardName = document.getElementById('cardName').value;
             
-            if (!cardNumber || cardNumber.length < 13 || !expiryDate || !cvv || !cardName) {
-                alert('Please fill all card details');
+            if (!cardNumber || cardNumber.length < 13) {
+                alert('Please enter a valid card number');
                 return false;
             }
+            if (!expiryDate || !/^\d{2}\/\d{2}$/.test(expiryDate)) {
+                alert('Please enter a valid expiry date (MM/YY)');
+                return false;
+            }
+            if (!cvv || cvv.length < 3) {
+                alert('Please enter a valid CVV');
+                return false;
+            }
+            if (!cardName || cardName.trim().length < 2) {
+                alert('Please enter the name on card');
+                return false;
+            }
+        } else if (paymentMethod === 'cod') {
+            // Cash on Delivery doesn't require any additional validation
+            console.log('Cash on Delivery selected - no card validation needed');
+            return true;
+        } else if (paymentMethod === 'paypal' || paymentMethod === 'apple') {
+            // For now, just show success for other payment methods
+            console.log(`${paymentMethod} payment selected`);
+            return true;
         }
         return true;
     }
@@ -1752,7 +1897,7 @@ class CheckoutSystem {
     }
     
     saveShippingData() {
-        this.checkoutData.shipping = {
+        const shippingData = {
             firstName: document.getElementById('shippingFirstName').value,
             lastName: document.getElementById('shippingLastName').value,
             address1: document.getElementById('shippingAddress1').value,
@@ -1762,6 +1907,36 @@ class CheckoutSystem {
             zip: document.getElementById('shippingZip').value,
             country: document.getElementById('shippingCountry').value
         };
+        
+        this.checkoutData.shipping = shippingData;
+        
+        // Save address for logged-in users for future use
+        const currentUser = window.authSystem ? window.authSystem.currentUser : null;
+        if (currentUser) {
+            const addressKey = `stylehub-addresses-${currentUser.id}`;
+            let savedAddresses = JSON.parse(localStorage.getItem(addressKey)) || [];
+            
+            // Check if this address already exists
+            const addressExists = savedAddresses.some(addr => 
+                addr.address1 === shippingData.address1 && 
+                addr.city === shippingData.city && 
+                addr.zip === shippingData.zip
+            );
+            
+            if (!addressExists) {
+                // Add new address
+                const newAddress = {
+                    ...shippingData,
+                    id: Date.now(),
+                    isDefault: savedAddresses.length === 0, // First address becomes default
+                    dateAdded: new Date().toISOString()
+                };
+                
+                savedAddresses.push(newAddress);
+                localStorage.setItem(addressKey, JSON.stringify(savedAddresses));
+                console.log('Address saved for future use');
+            }
+        }
     }
     
     savePaymentData() {
@@ -1771,6 +1946,14 @@ class CheckoutSystem {
         if (paymentMethod === 'credit') {
             this.checkoutData.payment.cardLast4 = document.getElementById('cardNumber').value.slice(-4);
             this.checkoutData.payment.cardName = document.getElementById('cardName').value;
+            this.checkoutData.payment.displayName = 'Credit/Debit Card';
+        } else if (paymentMethod === 'cod') {
+            this.checkoutData.payment.displayName = 'Cash on Delivery';
+            this.checkoutData.payment.codCharges = 40; // COD charges
+        } else if (paymentMethod === 'paypal') {
+            this.checkoutData.payment.displayName = 'PayPal';
+        } else if (paymentMethod === 'apple') {
+            this.checkoutData.payment.displayName = 'Apple Pay';
         }
     }
     
@@ -1812,6 +1995,11 @@ class CheckoutSystem {
             case 'apple':
                 paymentText = 'Apple Pay';
                 break;
+            case 'cod':
+                paymentText = 'Cash on Delivery';
+                break;
+            default:
+                paymentText = payment.displayName || 'Unknown Payment Method';
         }
         document.getElementById('summaryPayment').innerHTML = paymentText;
         
@@ -1821,12 +2009,25 @@ class CheckoutSystem {
             return sum + (price * item.quantity);
         }, 0);
         const shippingCost = 497; // ₹497 (equivalent to $5.99)
+        const codCharges = payment.method === 'cod' ? (payment.codCharges || 40) : 0;
         const tax = subtotal * 0.18; // 18% GST in India
-        const total = subtotal + shippingCost + tax;
+        const total = subtotal + shippingCost + codCharges + tax;
         
         document.getElementById('summarySubtotal').textContent = `₹${subtotal.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
         document.getElementById('summaryShipping').textContent = `₹${shippingCost.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
         document.getElementById('summaryTax').textContent = `₹${tax.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        
+        // Show/hide COD charges row
+        const codRow = document.getElementById('summaryCOD');
+        if (codCharges > 0) {
+            if (codRow) {
+                codRow.style.display = 'flex';
+                codRow.querySelector('.cod-amount').textContent = `₹${codCharges.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            }
+        } else {
+            if (codRow) codRow.style.display = 'none';
+        }
+        
         document.getElementById('summaryTotal').textContent = `₹${total.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     }
     
@@ -1879,6 +2080,105 @@ function continueAsGuest() {
     document.querySelector('.guest-login-options').style.display = 'none';
 }
 
+// Logged-in user checkout functions
+function continueWithAccount() {
+    // User wants to continue with their logged-in account
+    if (window.checkoutSystem) {
+        const currentUser = window.authSystem.currentUser;
+        
+        // Check if user has saved address information
+        const savedAddresses = JSON.parse(localStorage.getItem(`stylehub-addresses-${currentUser.id}`)) || [];
+        
+        if (savedAddresses.length > 0) {
+            // User has saved addresses - use the default one and skip to payment
+            const defaultAddress = savedAddresses.find(addr => addr.isDefault) || savedAddresses[0];
+            
+            window.checkoutSystem.checkoutData.shipping = {
+                firstName: defaultAddress.firstName,
+                lastName: defaultAddress.lastName,
+                address1: defaultAddress.address1,
+                address2: defaultAddress.address2 || '',
+                city: defaultAddress.city,
+                state: defaultAddress.state,
+                zip: defaultAddress.zip,
+                country: defaultAddress.country
+            };
+            
+            // Jump directly to payment step (step 3)
+            window.checkoutSystem.currentStep = 3;
+            window.checkoutSystem.showStep(3);
+            window.checkoutSystem.updateProgressIndicator();
+            window.checkoutSystem.updateNavigationButtons();
+            
+            console.log('Using saved address, skipped to payment step');
+        } else {
+            // No saved addresses - create a quick address form for logged-in users
+            showQuickAddressForm();
+        }
+    }
+}
+
+function showQuickAddressForm() {
+    // Show a simplified address form for logged-in users
+    const currentUser = window.authSystem.currentUser;
+    
+    // Pre-fill address form with user data
+    document.getElementById('shippingFirstName').value = currentUser.firstName || currentUser.name.split(' ')[0] || currentUser.name;
+    document.getElementById('shippingLastName').value = currentUser.lastName || currentUser.name.split(' ').slice(1).join(' ') || '';
+    
+    // Go to address step (step 2) but with pre-filled user data
+    window.checkoutSystem.currentStep = 2;
+    window.checkoutSystem.showStep(2);
+    window.checkoutSystem.updateProgressIndicator();
+    window.checkoutSystem.updateNavigationButtons();
+    
+    // Add a message for logged-in users
+    const addressStep = document.getElementById('checkoutStep2');
+    let quickAddressMsg = addressStep.querySelector('.quick-address-message');
+    if (!quickAddressMsg) {
+        quickAddressMsg = document.createElement('div');
+        quickAddressMsg.className = 'quick-address-message';
+        quickAddressMsg.innerHTML = `
+            <div style="background: #e8f5e8; border: 2px solid #10b981; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px; color: #065f46;">
+                    <i class="fas fa-info-circle" style="color: #10b981;"></i>
+                    <div>
+                        <strong>Quick Address Setup</strong>
+                        <p style="margin: 5px 0 0 0; font-size: 14px;">We've pre-filled your name. Just add your delivery address and we'll save it for future orders!</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        addressStep.insertBefore(quickAddressMsg, addressStep.querySelector('.address-form'));
+    }
+    
+    console.log('Showing quick address form for logged-in user');
+}
+
+function switchToGuest() {
+    // User wants to checkout as guest instead
+    const loggedInUserInfo = document.getElementById('loggedInUserInfo');
+    const guestLoginOptions = document.querySelector('.guest-login-options');
+    
+    if (loggedInUserInfo) loggedInUserInfo.style.display = 'none';
+    if (guestLoginOptions) guestLoginOptions.style.display = 'flex';
+    
+    // Clear pre-populated user data
+    if (window.checkoutSystem) {
+        window.checkoutSystem.checkoutData.user = null;
+    }
+}
+
+function showLoginInCheckout() {
+    // Close checkout and show auth modal
+    if (window.checkoutSystem) {
+        window.checkoutSystem.closeCheckout();
+    }
+    if (window.authSystem) {
+        window.authSystem.showAuthModal();
+    }
+}
+
 function showLoginInCheckout() {
     window.checkoutSystem.closeCheckout();
     window.authSystem.showAuthModal();
@@ -1907,8 +2207,71 @@ function closeOrderModal() {
 }
 
 function trackOrder() {
+    const orderNumber = document.getElementById('orderNumber').textContent;
     closeOrderModal();
-    alert('Order tracking feature coming soon!');
+    
+    // Create tracking modal
+    const trackingModal = document.createElement('div');
+    trackingModal.className = 'order-modal';
+    trackingModal.style.display = 'flex';
+    trackingModal.innerHTML = `
+        <div class="order-content">
+            <button class="close-modal" onclick="this.parentElement.parentElement.remove()">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="order-success">
+                <i class="fas fa-truck" style="color: var(--primary-pink);"></i>
+                <h2>Track Your Order</h2>
+                <p>Order ${orderNumber}</p>
+                
+                <div class="tracking-info">
+                    <div class="tracking-step completed">
+                        <div class="step-icon"><i class="fas fa-check"></i></div>
+                        <div class="step-content">
+                            <h4>Order Confirmed</h4>
+                            <p>Your order has been placed successfully</p>
+                            <small>Just now</small>
+                        </div>
+                    </div>
+                    
+                    <div class="tracking-step active">
+                        <div class="step-icon"><i class="fas fa-box"></i></div>
+                        <div class="step-content">
+                            <h4>Processing</h4>
+                            <p>We're preparing your order</p>
+                            <small>Processing now</small>
+                        </div>
+                    </div>
+                    
+                    <div class="tracking-step">
+                        <div class="step-icon"><i class="fas fa-truck"></i></div>
+                        <div class="step-content">
+                            <h4>Shipped</h4>
+                            <p>Your order is on the way</p>
+                            <small>Estimated tomorrow</small>
+                        </div>
+                    </div>
+                    
+                    <div class="tracking-step">
+                        <div class="step-icon"><i class="fas fa-home"></i></div>
+                        <div class="step-content">
+                            <h4>Delivered</h4>
+                            <p>Order delivered to your address</p>
+                            <small>Estimated ${document.getElementById('deliveryDate').textContent}</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="order-actions" style="margin-top: 20px;">
+                    <button class="btn-secondary" onclick="this.parentElement.parentElement.parentElement.parentElement.remove()">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(trackingModal);
 }
 
 // Enhanced checkout function
